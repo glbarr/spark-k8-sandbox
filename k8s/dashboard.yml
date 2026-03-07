@@ -13,7 +13,7 @@ metadata:
   namespace: spark
 rules:
   - apiGroups: [""]
-    resources: ["pods", "pods/logs"]
+    resources: ["pods", "pods/log"]
     verbs: ["get", "list", "watch", "delete"]
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -57,39 +57,39 @@ spec:
     metadata:
       labels:
         app: spark-dashboard
-      spec:
-        serviceAccountName: spark-dashboard
-        containers:
-          - name: dashboard
-            image: spark-dashboard:latest
-            imagePullPolicy: Never
-            ports:
-              - containerPort: 5000
-                name: http
-            env:
-              - name: SPARK_NAMESPACE
-                value: "spark"
-              - name: JOBS_DIR
-                value: "/apps/jobs"
-            resources:
-              requests:
-                memory: "128Mi"
-                cpu: "100m"
-              limits:
-                memory: "256Mi"
-                cpu: "200m"
-            readinessProbe:
-              httpGet:
-                path: /
-                port: 5000
-              initialDelaySeconds: 10
-              periodSeconds: 5
-            livenessProbe:
-              httpGet:
-                path: /
-                port: 5000
-              initialDelaySeconds: 30
-              periodSeconds: 10
+    spec:
+      serviceAccountName: spark-dashboard
+      containers:
+        - name: dashboard
+          image: spark-dashboard:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 5000
+              name: http
+          env:
+            - name: SPARK_NAMESPACE
+              value: "spark"
+            - name: JOBS_DIR
+              value: "/apps/jobs"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
 
 ---
 apiVersion: v1

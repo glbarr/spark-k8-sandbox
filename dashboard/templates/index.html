@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spark K8s Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3148;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 600; color: #fff; }
+    header span { font-size: 0.8rem; color: #6b7280; background: #2d3148; padding: 2px 10px; border-radius: 999px; }
+
+    .history-link {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      background: #2d3148;
+      border: 1px solid #3d4268;
+      color: #a5b4fc;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .history-link:hover { background: #3d4268; }
+
+    .refresh-btn {
+      margin-left: 8px;
+      background: #2d3148;
+      border: 1px solid #3d4268;
+      color: #e2e8f0;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: background 0.15s;
+    }
+    .refresh-btn:hover { background: #3d4268; }
+
+    main { padding: 28px 32px; max-width: 1400px; margin: 0 auto; }
+
+    /* Status Cards */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .status-card {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .status-card .label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+    .status-card .count { font-size: 2rem; font-weight: 700; }
+    .status-card.running .count  { color: #34d399; }
+    .status-card.pending .count  { color: #fbbf24; }
+    .status-card.completed .count { color: #60a5fa; }
+    .status-card.failed .count   { color: #f87171; }
+    .status-card.unknown .count  { color: #9ca3af; }
+
+    /* Layout */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    /* Panels */
+    .panel {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid #2d3148;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .panel-header h2 { font-size: 0.95rem; font-weight: 600; }
+    .panel-header .badge {
+      font-size: 0.75rem;
+      background: #2d3148;
+      padding: 2px 10px;
+      border-radius: 999px;
+      color: #9ca3af;
+    }
+    .panel-body { padding: 16px 20px; }
+
+    /* Upload */
+    .upload-zone {
+      border: 2px dashed #2d3148;
+      border-radius: 8px;
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+    .upload-zone:hover, .upload-zone.dragover { border-color: #6366f1; background: #1e2035; }
+    .upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    .upload-zone p { color: #6b7280; font-size: 0.875rem; margin-top: 6px; }
+    .upload-zone strong { color: #a5b4fc; }
+    #upload-status { margin-top: 10px; font-size: 0.82rem; min-height: 18px; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { text-align: left; padding: 8px 10px; color: #6b7280; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #2d3148; }
+    td { padding: 10px 10px; border-bottom: 1px solid #1e2133; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1e2133; }
+
+    .empty { color: #4b5563; font-size: 0.85rem; text-align: center; padding: 24px 0; }
+
+    /* Badges */
+    .badge-status {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 500;
+    }
+    .badge-Running   { background: #064e3b; color: #34d399; }
+    .badge-Pending   { background: #451a03; color: #fbbf24; }
+    .badge-Completed { background: #1e3a5f; color: #60a5fa; }
+    .badge-Succeeded { background: #1e3a5f; color: #60a5fa; }
+    .badge-Failed    { background: #450a0a; color: #f87171; }
+    .badge-Unknown   { background: #1f2937; color: #9ca3af; }
+
+    /* Buttons */
+    .btn {
+      border: none;
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.8; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-run    { background: #4f46e5; color: #fff; }
+    .btn-log    { background: #2d3148; color: #e2e8f0; }
+    .btn-live   { background: #065f46; color: #6ee7b7; text-decoration: none; }
+    .btn-delete { background: #7f1d1d; color: #fca5a5; }
+    .btn-group  { display: flex; gap: 6px; }
+
+    .name-cell { font-family: monospace; font-size: 0.82rem; color: #c4b5fd; word-break: break-all; }
+    .date-cell { color: #6b7280; font-size: 0.78rem; white-space: nowrap; }
+
+    /* Log Modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 860px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid #2d3148;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 { font-size: 0.9rem; font-family: monospace; color: #c4b5fd; }
+    .modal-close { background: none; border: none; color: #6b7280; font-size: 1.2rem; cursor: pointer; padding: 4px 8px; }
+    .modal-close:hover { color: #e2e8f0; }
+    .modal-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    #log-content {
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #d1fae5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      line-height: 1.6;
+    }
+    .log-lines-control { display: flex; align-items: center; gap: 8px; }
+    .log-lines-control select {
+      background: #2d3148;
+      border: 1px solid #3d4268;
+      color: #e2e8f0;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+    }
+
+    /* Toast */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px 18px;
+      font-size: 0.85rem;
+      display: none;
+      z-index: 200;
+      max-width: 340px;
+    }
+    #toast.success { border-color: #34d399; color: #34d399; }
+    #toast.error   { border-color: #f87171; color: #f87171; }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+  </svg>
+  <h1>Spark K8s Dashboard</h1>
+  <span id="namespace-badge">spark</span>
+  <a class="history-link" href="http://localhost:32080" target="_blank" rel="noopener">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:5px;vertical-align:middle"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+    Spark History Server
+  </a>
+  <button class="refresh-btn" onclick="loadAll()">&#8635; Refresh</button>
+</header>
+
+<main>
+  <!-- Status Cards -->
+  <div class="status-grid">
+    <div class="status-card running">
+      <div class="label">Running</div>
+      <div class="count" id="count-running">—</div>
+    </div>
+    <div class="status-card pending">
+      <div class="label">Pending</div>
+      <div class="count" id="count-pending">—</div>
+    </div>
+    <div class="status-card completed">
+      <div class="label">Completed</div>
+      <div class="count" id="count-completed">—</div>
+    </div>
+    <div class="status-card failed">
+      <div class="label">Failed</div>
+      <div class="count" id="count-failed">—</div>
+    </div>
+    <div class="status-card unknown">
+      <div class="label">Unknown</div>
+      <div class="count" id="count-unknown">—</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Upload Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Upload Job</h2>
+      </div>
+      <div class="panel-body">
+        <div class="upload-zone" id="upload-zone">
+          <input type="file" id="file-input" accept=".py" />
+          <strong>Click or drag a .py file here</strong>
+          <p>PySpark job files only</p>
+        </div>
+        <div id="upload-status"></div>
+      </div>
+    </div>
+
+    <!-- Uploaded Jobs Panel -->
+    <div class="panel">
+      <div class="panel-header">
+        <h2>Uploaded Jobs</h2>
+        <span class="badge" id="uploaded-count">0</span>
+      </div>
+      <div class="panel-body" style="padding:0">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Uploaded</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="uploaded-jobs-tbody">
+            <tr><td colspan="3" class="empty">No uploaded jobs</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- K8s Jobs Panel -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <h2>Job Runs</h2>
+      <span class="badge" id="jobs-count">0</span>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Active</th>
+            <th>Succeeded</th>
+            <th>Failed</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-tbody">
+          <tr><td colspan="7" class="empty">No job runs</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Pods Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Pods</h2>
+      <span class="badge" id="pods-count">0</span>
+    </div>
+    <div class="panel-body" style="padding:0">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Node</th>
+            <th>Created</th>
+            <th>Logs</th>
+          </tr>
+        </thead>
+        <tbody id="pods-tbody">
+          <tr><td colspan="5" class="empty">No pods</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<!-- Log Modal -->
+<div class="modal-backdrop" id="log-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="log-pod-name"></h3>
+      <div class="log-lines-control">
+        <select id="log-lines" onchange="reloadLogs()">
+          <option value="50">50 lines</option>
+          <option value="100" selected>100 lines</option>
+          <option value="200">200 lines</option>
+          <option value="500">500 lines</option>
+        </select>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <pre id="log-content">Loading...</pre>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  let currentLogPod = null;
+
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    return new Date(iso).toLocaleString();
+  }
+
+  function statusBadge(s) {
+    return `<span class="badge-status badge-${s}">${s}</span>`;
+  }
+
+  function showToast(msg, type = "success") {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = type;
+    t.style.display = "block";
+    setTimeout(() => { t.style.display = "none"; }, 3500);
+  }
+
+  // ── Status ──────────────────────────────────────────────
+  async function loadStatus() {
+    try {
+      const res = await fetch("/api/status");
+      const data = await res.json();
+      const c = data.pod_counts || {};
+      document.getElementById("count-running").textContent   = c.Running   ?? 0;
+      document.getElementById("count-pending").textContent   = c.Pending   ?? 0;
+      document.getElementById("count-completed").textContent = c.Completed ?? 0;
+      document.getElementById("count-failed").textContent    = c.Failed    ?? 0;
+      document.getElementById("count-unknown").textContent   = c.Unknown   ?? 0;
+
+      renderJobs(data.jobs || []);
+      renderPods(data.pods || []);
+    } catch (e) {
+      console.error("Failed to load status", e);
+    }
+  }
+
+  // ── Jobs ─────────────────────────────────────────────────
+  function renderJobs(jobs) {
+    const tbody = document.getElementById("jobs-tbody");
+    document.getElementById("jobs-count").textContent = jobs.length;
+    if (!jobs.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="empty">No job runs</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = jobs.map(j => `
+      <tr>
+        <td class="name-cell">${j.name}</td>
+        <td>${statusBadge(j.status)}</td>
+        <td>${j.active}</td>
+        <td>${j.succeeded}</td>
+        <td>${j.failed}</td>
+        <td class="date-cell">${fmtDate(j.created)}</td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-delete" onclick="deleteJob('${j.name}')">Delete</button>
+          </div>
+        </td>
+      </tr>`).join("");
+  }
+
+  async function deleteJob(name) {
+    if (!confirm(`Delete job "${name}"?`)) return;
+    const res = await fetch(`/api/delete/job/${name}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    showToast(`Job "${name}" deleted`);
+    loadAll();
+  }
+
+  // ── Pods ─────────────────────────────────────────────────
+  function renderPods(pods) {
+    const tbody = document.getElementById("pods-tbody");
+    document.getElementById("pods-count").textContent = pods.length;
+    if (!pods.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty">No pods</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = pods.map(p => {
+      const isSparkJob = (p.labels || {})["app"] === "spark-job";
+      const liveUiBtn = (isSparkJob && p.status === "Running")
+        ? `<a class="btn btn-live" href="/spark-ui/${p.name}/" target="_blank" rel="noopener">Live UI</a>`
+        : "";
+      return `
+      <tr>
+        <td class="name-cell">${p.name}</td>
+        <td>${statusBadge(p.status)}</td>
+        <td class="date-cell">${p.node || "—"}</td>
+        <td class="date-cell">${fmtDate(p.created)}</td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-log" onclick="openLogs('${p.name}')">Logs</button>
+            ${liveUiBtn}
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  // ── Uploaded Jobs ─────────────────────────────────────────
+  async function loadUploadedJobs() {
+    try {
+      const res = await fetch("/api/uploaded-jobs");
+      const jobs = await res.json();
+      renderUploadedJobs(jobs);
+    } catch (e) {
+      console.error("Failed to load uploaded jobs", e);
+    }
+  }
+
+  function renderUploadedJobs(jobs) {
+    const tbody = document.getElementById("uploaded-jobs-tbody");
+    document.getElementById("uploaded-count").textContent = jobs.length;
+    if (!jobs.length) {
+      tbody.innerHTML = `<tr><td colspan="3" class="empty">No uploaded jobs</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = jobs.map(j => `
+      <tr>
+        <td class="name-cell">${j.filename}</td>
+        <td class="date-cell">${fmtDate(j.created)}</td>
+        <td>
+          <div class="btn-group">
+            <button class="btn btn-run" onclick="runJob('${j.id}', this)">Run</button>
+            <button class="btn btn-delete" onclick="deleteUploaded('${j.id}')">Delete</button>
+          </div>
+        </td>
+      </tr>`).join("");
+  }
+
+  async function runJob(jobId, btn) {
+    btn.disabled = true;
+    btn.textContent = "Submitting…";
+    const res = await fetch(`/api/run-uploaded/${jobId}`, { method: "POST" });
+    const data = await res.json();
+    btn.disabled = false;
+    btn.textContent = "Run";
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    showToast(`Job submitted: ${data.job_name}`);
+    loadStatus();
+  }
+
+  async function deleteUploaded(jobId) {
+    if (!confirm(`Delete uploaded job "${jobId}"?`)) return;
+    const res = await fetch(`/api/delete/uploaded/${jobId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    showToast(`Uploaded job deleted`);
+    loadUploadedJobs();
+  }
+
+  // ── Upload ────────────────────────────────────────────────
+  document.getElementById("file-input").addEventListener("change", function () {
+    if (this.files[0]) uploadFile(this.files[0]);
+  });
+
+  const uploadZone = document.getElementById("upload-zone");
+  uploadZone.addEventListener("dragover", e => { e.preventDefault(); uploadZone.classList.add("dragover"); });
+  uploadZone.addEventListener("dragleave",  () => uploadZone.classList.remove("dragover"));
+  uploadZone.addEventListener("drop", e => {
+    e.preventDefault();
+    uploadZone.classList.remove("dragover");
+    const file = e.dataTransfer.files[0];
+    if (file) uploadFile(file);
+  });
+
+  async function uploadFile(file) {
+    const statusEl = document.getElementById("upload-status");
+    if (!file.name.endsWith(".py")) {
+      statusEl.style.color = "#f87171";
+      statusEl.textContent = "Only .py files are supported.";
+      return;
+    }
+    statusEl.style.color = "#9ca3af";
+    statusEl.textContent = `Uploading ${file.name}…`;
+
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await res.json();
+
+    if (!res.ok) {
+      statusEl.style.color = "#f87171";
+      statusEl.textContent = data.error;
+      return;
+    }
+    statusEl.style.color = "#34d399";
+    statusEl.textContent = `"${data.filename}" uploaded successfully.`;
+    document.getElementById("file-input").value = "";
+    loadUploadedJobs();
+  }
+
+  // ── Logs ──────────────────────────────────────────────────
+  async function openLogs(podName) {
+    currentLogPod = podName;
+    document.getElementById("log-pod-name").textContent = podName;
+    document.getElementById("log-content").textContent = "Loading…";
+    document.getElementById("log-modal").classList.add("open");
+    await fetchLogs(podName, document.getElementById("log-lines").value);
+  }
+
+  async function fetchLogs(podName, lines) {
+    const res = await fetch(`/api/logs/${podName}?lines=${lines}`);
+    const data = await res.json();
+    document.getElementById("log-content").textContent = data.logs || "(no logs)";
+    const body = document.querySelector(".modal-body");
+    body.scrollTop = body.scrollHeight;
+  }
+
+  async function reloadLogs() {
+    if (!currentLogPod) return;
+    document.getElementById("log-content").textContent = "Loading…";
+    await fetchLogs(currentLogPod, document.getElementById("log-lines").value);
+  }
+
+  function closeModal() {
+    document.getElementById("log-modal").classList.remove("open");
+    currentLogPod = null;
+  }
+
+  document.getElementById("log-modal").addEventListener("click", function (e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ── Init ──────────────────────────────────────────────────
+  function loadAll() {
+    loadStatus();
+    loadUploadedJobs();
+  }
+
+  loadAll();
+  setInterval(loadAll, 15000);
+</script>
+</body>
+</html>

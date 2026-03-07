@@ -10,7 +10,7 @@ def main():
             .appName("SimpleCounter")\
             .getOrCreate()
     
-    sc = spark.sparkContext()
+    sc = spark.sparkContext
     sc.setLogLevel("WARN")
 
     print(f"\n [INFO] Spark Version: {spark.version}")
