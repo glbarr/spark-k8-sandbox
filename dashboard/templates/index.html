@@ -312,6 +312,35 @@
     </div>
   </div>
 
+  <!-- Landing Zone Panel -->
+  <div class="panel" style="margin-bottom:24px">
+    <div class="panel-header">
+      <h2>Landing Zone <span style="font-size:0.75rem;color:#6b7280;font-weight:400;">/data/warehouse/landing</span></h2>
+      <span class="badge" id="landing-count">0</span>
+    </div>
+    <div class="panel-body">
+      <div class="upload-zone" id="landing-upload-zone" style="margin-bottom:14px">
+        <input type="file" id="landing-file-input" />
+        <strong>Click or drag any data file here</strong>
+        <p>CSV, JSON, Parquet, Avro, ORC — any format your jobs can read</p>
+      </div>
+      <div id="landing-upload-status" style="margin-bottom:10px;font-size:0.82rem;min-height:18px;"></div>
+      <table>
+        <thead>
+          <tr>
+            <th>Filename</th>
+            <th>Size</th>
+            <th>Modified</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="landing-tbody">
+          <tr><td colspan="4" class="empty">No files in landing zone</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- K8s Jobs Panel -->
   <div class="panel" style="margin-bottom:24px">
     <div class="panel-header">
@@ -613,10 +642,88 @@
     if (e.target === this) closeModal();
   });
 
+  // ── Landing Zone ──────────────────────────────────────────
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
+  }
+
+  async function loadLandingZone() {
+    try {
+      const res = await fetch("/api/warehouse/landing");
+      const files = await res.json();
+      renderLandingZone(Array.isArray(files) ? files : []);
+    } catch (e) {
+      console.error("Failed to load landing zone", e);
+    }
+  }
+
+  function renderLandingZone(files) {
+    const tbody = document.getElementById("landing-tbody");
+    document.getElementById("landing-count").textContent = files.length;
+    if (!files.length) {
+      tbody.innerHTML = `<tr><td colspan="4" class="empty">No files in landing zone</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = files.map(f => `
+      <tr>
+        <td class="name-cell">${f.filename}</td>
+        <td class="date-cell">${fmtSize(f.size)}</td>
+        <td class="date-cell">${fmtDate(f.modified)}</td>
+        <td>
+          <button class="btn btn-delete" onclick="deleteLandingFile('${f.filename}')">Delete</button>
+        </td>
+      </tr>`).join("");
+  }
+
+  async function deleteLandingFile(filename) {
+    if (!confirm(`Delete "${filename}" from landing zone?`)) return;
+    const res = await fetch(`/api/warehouse/landing/${encodeURIComponent(filename)}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    showToast(`"${filename}" deleted from landing zone`);
+    loadLandingZone();
+  }
+
+  const landingUploadZone = document.getElementById("landing-upload-zone");
+  document.getElementById("landing-file-input").addEventListener("change", function () {
+    if (this.files[0]) uploadDataFile(this.files[0]);
+  });
+  landingUploadZone.addEventListener("dragover", e => { e.preventDefault(); landingUploadZone.classList.add("dragover"); });
+  landingUploadZone.addEventListener("dragleave",  () => landingUploadZone.classList.remove("dragover"));
+  landingUploadZone.addEventListener("drop", e => {
+    e.preventDefault();
+    landingUploadZone.classList.remove("dragover");
+    if (e.dataTransfer.files[0]) uploadDataFile(e.dataTransfer.files[0]);
+  });
+
+  async function uploadDataFile(file) {
+    const statusEl = document.getElementById("landing-upload-status");
+    statusEl.style.color = "#9ca3af";
+    statusEl.textContent = `Uploading ${file.name}…`;
+
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch("/api/upload-data", { method: "POST", body: form });
+    const data = await res.json();
+
+    if (!res.ok) {
+      statusEl.style.color = "#f87171";
+      statusEl.textContent = data.error;
+      return;
+    }
+    statusEl.style.color = "#34d399";
+    statusEl.textContent = `"${data.filename}" uploaded (${fmtSize(data.size)})`;
+    document.getElementById("landing-file-input").value = "";
+    loadLandingZone();
+  }
+
   // ── Init ──────────────────────────────────────────────────
   function loadAll() {
     loadStatus();
     loadUploadedJobs();
+    loadLandingZone();
   }
 
   loadAll();
