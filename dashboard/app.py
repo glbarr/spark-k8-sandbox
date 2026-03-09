@@ -19,6 +19,8 @@ batch_v1 = client.BatchV1Api()
 
 NAMESPACE = os.environ.get("SPARK_NAMESPACE", "spark")
 SPARK_JOB_IMAGE = os.environ.get("SPARK_JOB_IMAGE", "spark-sandbox:latest")
+WAREHOUSE_PATH = os.environ.get("WAREHOUSE_PATH", "/data/warehouse")
+LANDING_PATH = os.path.join(WAREHOUSE_PATH, "landing")
 
 UPLOADED_JOB_LABEL = "spark-dashboard/type"
 UPLOADED_JOB_LABEL_VALUE = "uploaded-job"
@@ -174,6 +176,58 @@ def api_upload():
     return jsonify({"id": job_id, "filename": filename}), 201
 
 
+@app.route("/api/upload-data", methods=["POST"])
+def api_upload_data():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"error": "No filename"}), 400
+
+    filename = os.path.basename(file.filename)
+    dest = os.path.join(LANDING_PATH, filename)
+
+    try:
+        os.makedirs(LANDING_PATH, exist_ok=True)
+        file.save(dest)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"filename": filename, "size": os.path.getsize(dest)}), 201
+
+
+@app.route("/api/warehouse/landing")
+def api_warehouse_landing():
+    try:
+        os.makedirs(LANDING_PATH, exist_ok=True)
+        files = []
+        for f in os.listdir(LANDING_PATH):
+            path = os.path.join(LANDING_PATH, f)
+            if os.path.isfile(path):
+                stat = os.stat(path)
+                files.append({
+                    "filename": f,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                })
+        return jsonify(sorted(files, key=lambda x: x["modified"], reverse=True))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/warehouse/landing/<path:filename>", methods=["DELETE"])
+def api_delete_landing_file(filename):
+    filename = os.path.basename(filename)
+    path = os.path.join(LANDING_PATH, filename)
+    if not os.path.exists(path):
+        return jsonify({"error": "File not found"}), 404
+    try:
+        os.remove(path)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"deleted": filename})
+
+
 @app.route("/api/run-uploaded/<job_id>", methods=["POST"])
 def api_run_uploaded(job_id):
     try:
@@ -202,6 +256,21 @@ def api_run_uploaded(job_id):
                 spec=client.V1PodSpec(
                     service_account_name="spark",
                     restart_policy="Never",
+                    init_containers=[
+                        client.V1Container(
+                            name="init-warehouse",
+                            image=SPARK_JOB_IMAGE,
+                            image_pull_policy="Never",
+                            command=[
+                                "sh", "-c",
+                                "mkdir -p /data/warehouse/landing /data/warehouse/iceberg /data/warehouse/delta /data/warehouse/output && chmod -R 777 /data/warehouse",
+                            ],
+                            security_context=client.V1SecurityContext(run_as_user=0),
+                            volume_mounts=[
+                                client.V1VolumeMount(name="data-warehouse", mount_path="/data/warehouse"),
+                            ],
+                        )
+                    ],
                     containers=[
                         client.V1Container(
                             name="spark-job",
@@ -217,6 +286,7 @@ def api_run_uploaded(job_id):
                             volume_mounts=[
                                 client.V1VolumeMount(name="job-files", mount_path="/tmp/jobs"),
                                 client.V1VolumeMount(name="spark-events", mount_path="/tmp/spark-events"),
+                                client.V1VolumeMount(name="data-warehouse", mount_path="/data/warehouse"),
                             ],
                             resources=client.V1ResourceRequirements(
                                 requests={"memory": "512Mi", "cpu": "500m"},
@@ -234,6 +304,12 @@ def api_run_uploaded(job_id):
                             host_path=client.V1HostPathVolumeSource(
                                 path="/tmp/spark-events",
                                 type="DirectoryOrCreate",
+                            ),
+                        ),
+                        client.V1Volume(
+                            name="data-warehouse",
+                            persistent_volume_claim=client.V1PersistentVolumeClaimVolumeSource(
+                                claim_name="data-warehouse-pvc",
                             ),
                         ),
                     ],

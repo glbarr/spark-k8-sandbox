@@ -71,6 +71,9 @@ spec:
               value: "spark"
             - name: JOBS_DIR
               value: "/apps/jobs"
+          volumeMounts:
+            - name: data-warehouse
+              mountPath: /data/warehouse
           resources:
             requests:
               memory: "128Mi"
@@ -90,6 +93,10 @@ spec:
               port: 5000
             initialDelaySeconds: 30
             periodSeconds: 10
+      volumes:
+        - name: data-warehouse
+          persistentVolumeClaim:
+            claimName: data-warehouse-pvc
 
 ---
 apiVersion: v1

@@ -1,0 +1,99 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jupyter
+  namespace: spark
+  labels:
+    app: jupyter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jupyter
+  template:
+    metadata:
+      labels:
+        app: jupyter
+    spec:
+      initContainers:
+      - name: init-warehouse
+        image: spark-sandbox:latest
+        imagePullPolicy: Never
+        command:
+          - sh
+          - -c
+          - |
+            mkdir -p /data/warehouse/landing /data/warehouse/iceberg /data/warehouse/delta /data/warehouse/output /data/warehouse/notebooks
+            chmod -R 777 /data/warehouse
+            cp -n /opt/spark/notebooks/* /data/warehouse/notebooks/ 2>/dev/null || true
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+          - name: data-warehouse
+            mountPath: /data/warehouse
+      containers:
+      - name: jupyter
+        image: spark-sandbox:latest
+        imagePullPolicy: Never
+        command:
+          - jupyter
+          - lab
+          - --ip=0.0.0.0
+          - --port=8888
+          - --no-browser
+          - --ServerApp.token=
+          - --ServerApp.password=
+          - --notebook-dir=/data/warehouse
+        env:
+          - name: SPARK_LOCAL_IP
+            value: "127.0.0.1"
+          - name: HOME
+            value: /tmp/jupyter-home
+        ports:
+          - containerPort: 8888
+            name: http
+        volumeMounts:
+          - name: data-warehouse
+            mountPath: /data/warehouse
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "2"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8888
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8888
+          initialDelaySeconds: 30
+          periodSeconds: 20
+      volumes:
+        - name: data-warehouse
+          persistentVolumeClaim:
+            claimName: data-warehouse-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jupyter
+  namespace: spark
+  labels:
+    app: jupyter
+spec:
+  type: NodePort
+  ports:
+    - port: 8888
+      targetPort: 8888
+      nodePort: 32088
+      name: http
+  selector:
+    app: jupyter
