@@ -11,7 +11,7 @@ RUN curl -fsSL -o /opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.6.1.jar \
       https://repo1.maven.org/maven2/io/delta/delta-storage/3.2.1/delta-storage-3.2.1.jar
 
 # Install python dependencies for spark jobs and JupyterLab
-RUN pip install --no-cache-dir pyspark==3.5.3 delta-spark==3.2.1 pyiceberg==0.7.1 jupyterlab==4.2.5 ipykernel==6.29.5 pandas==2.2.3
+RUN pip install --no-cache-dir pyspark==3.5.3 delta-spark==3.2.1 pyiceberg==0.7.1 jupyterlab==4.2.5 ipykernel==6.29.5 pandas==2.0.3
 
 RUN mkdir -p /opt/spark/jobs && chmod 755 /opt/spark/jobs
 
